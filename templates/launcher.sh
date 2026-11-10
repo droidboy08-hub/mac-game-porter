@@ -70,4 +70,21 @@ export WINEDLLOVERRIDES="winemenubuilder.exe=d;mscoree,mshtml="
 EXE_DIR="$GAME_DIR/${GAME_EXE:h}"
 cd "$EXE_DIR"
 WIN_EXE="C:\\Games\\$GAME_SLUG\\${GAME_EXE//\//\\}"
-exec "$RES/wine/bin/wine64" "$WIN_EXE" "${ARGS[@]}" ${=EXTRA_ARGS} "$@" > "$LOG" 2>&1
+
+# GPTK's wine64 intermittently aborts 32-bit games at startup with an ASLR-dependent virtual-memory
+# assertion (alloc_pages_vprot, ntdll/virtual.c): the page-protection table doesn't cover where a
+# mapping happened to land. A fresh process usually gets a layout that works, so retry on exactly
+# that crash, bounded, killing the server between attempts. Any other exit is passed through as-is.
+tries=0
+max=${LAUNCH_RETRIES:-10}
+while :; do
+  "$RES/wine/bin/wine64" "$WIN_EXE" "${ARGS[@]}" ${=EXTRA_ARGS} "$@" > "$LOG" 2>&1
+  rc=$?
+  if (( tries < max )) && grep -q 'alloc_pages_vprot' "$LOG"; then
+    tries=$((tries + 1))
+    "$RES/wine/bin/wineserver" -k 2>/dev/null
+    continue
+  fi
+  break
+done
+exit $rc

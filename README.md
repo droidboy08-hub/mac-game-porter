@@ -1,3 +1,5 @@
+> **Community fork of [KarmSakha/mac-game-porter](https://github.com/KarmSakha/mac-game-porter).** Same MIT license, kept intact. Adds fixes for 32-bit DirectX 11 titles (see commit history). Not affiliated with or endorsed by the original author.
+
 <p align="center"><img src="docs/icon.png" width="120" alt="Mac Game Porter icon"></p>
 
 <h1 align="center">Mac Game Porter</h1>
