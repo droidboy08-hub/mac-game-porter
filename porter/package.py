@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from . import game, paths
+from . import game, paths, probe
 from .runtime import log
 
 REGISTRY = r'''Windows Registry Editor Version 5.00
@@ -90,6 +90,11 @@ def build_app(name, game_dir, info, out_dir, embed=False):
     clone(prefix_template(), res / 'prefix-template')
     conf = (f'GAME_NAME={name!r}\nGAME_SLUG={slug!r}\nGAME_EXE={info["exe"]!r}\nENGINE={info["engine"]!r}\n'
             f'CONTROLLER={info.get("controller", "xinput")!r}\n')
+    # Record which Wine runtime + DirectX->Metal renderer this game needs, so the launcher
+    # uses the right stack: GPTK/D3DMetal for 64-bit DX12/DX11, Sikarugir/DXMT for 32-bit DX11.
+    pe, stack = probe.probe(Path(game_dir) / info['exe'])
+    conf += stack.to_conf()
+    log(f'stack: {stack.runtime} + {stack.renderer} ({stack.reason})')
     shutil.copy2(paths.REPO / 'templates/winexinput.inf', res / 'winexinput.inf')
     if embed:
         clone(game_dir, res / 'game')

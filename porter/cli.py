@@ -11,9 +11,17 @@ import shutil
 import signal
 from pathlib import Path
 
-from . import game, package, paths, repack, runtime
+from . import game, package, paths, probe, repack, runtime
 from .extract import Extractor
 from .runtime import log
+
+
+def cmd_probe(a):
+    pe, stack = probe.probe(Path(a.exe).expanduser())
+    log(f'binary: {str(pe.bits) + "-bit" if pe.bits else "unknown"}, '
+        f'DirectX: {", ".join(pe.directx) or "none detected"}')
+    log(f'runtime: {stack.runtime}, renderer: {stack.renderer}')
+    log(f'reason: {stack.reason}')
 
 
 def cmd_setup(_):
@@ -89,6 +97,9 @@ def main():
     sub = ap.add_subparsers(dest='cmd', required=True)
     s = sub.add_parser('setup')
     s.set_defaults(func=cmd_setup)
+    s = sub.add_parser('probe', help='report a game exe: bitness, DirectX, and the runtime/renderer it needs')
+    s.add_argument('exe', help='path to the game .exe')
+    s.set_defaults(func=cmd_probe)
     for name in ('install', 'package'):
         s = sub.add_parser(name)
         s.add_argument('source')
