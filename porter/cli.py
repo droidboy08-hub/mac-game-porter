@@ -46,13 +46,21 @@ def cmd_extract(a):
 
 
 def cmd_package(a):
-    runtime.ensure_runtime('gptk')
     info = game.detect(a.source, a.exe)
     if getattr(a, 'controller', None):
         info['controller'] = a.controller
+    pe, stack = probe.probe(Path(a.source) / info['exe'])
     log(f'engine: {info["engine"]}, executable: {info["exe"]}, controllers: {info["controller"]}')
+    log(f'stack: {stack.runtime} + {stack.renderer} ({stack.reason})')
     out = Path(a.out or paths.GAMES)
     out.mkdir(parents=True, exist_ok=True)
+    # 32-bit DX11/10 (and DX9) can't use GPTK/D3DMetal; hand those off to exe-metal (DXMT/DXVK).
+    if stack.runtime == 'sikarugir':
+        runtime.ensure_exemetal()
+        if a.dmg:
+            log('note: --dmg applies only to the Game Porting Toolkit path; skipping it for a DXMT hand-off app.')
+        return package.build_app_handoff(a.name, a.source, info, stack, out)
+    runtime.ensure_runtime('gptk')
     app = package.build_app(a.name, a.source, info, out)
     if a.dmg:
         package.build_dmg(a.name, a.source, info, out)

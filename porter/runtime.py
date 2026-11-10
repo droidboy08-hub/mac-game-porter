@@ -64,3 +64,19 @@ def ensure_tools():
         return
     log('building native helpers (one-time)')
     subprocess.run([str(paths.REPO / 'native/build.sh'), str(paths.TOOLS)], check=True)
+
+
+# Games needing the DXMT/DXVK stack (32-bit DirectX 11/10) are handed off to exe-metal,
+# which composes the Sikarugir Wine + renderer. We expect its binary here (setup copies it).
+def exemetal_path():
+    return Path.home() / 'Library' / 'Application Support' / 'exe-metal' / 'bin' / 'exe-metal'
+
+
+def ensure_exemetal():
+    p = exemetal_path()
+    if not p.exists():
+        raise SystemExit(
+            'This game needs the DXMT path, which Mac Game Porter hands off to exe-metal.\n'
+            'Install exe-metal (https://github.com/navilansanthanakrishnan/exe-metal) and copy its\n'
+            f'built binary to:\n  {p}\nThen run this again. (See the README section on DXMT games.)')
+    return p

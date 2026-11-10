@@ -204,3 +204,31 @@ or turn on the Metal HUD (`MTL_HUD_ENABLED=1` in `launch.conf`) to measure.
 - Only install games you are entitled to.
 - The repack's stored checksums use a non-standard format, so verification checks sizes and
   structure, not CRC32.
+
+## 32-bit DirectX 11/10 games (DXMT hand-off)
+
+Apple's D3DMetal is **64-bit only**, so 32-bit DirectX 10/11 games (for example
+BioShock 2 Remastered) cannot use the Game Porting Toolkit path — they launch, then
+quit. `porter` now detects these and builds an app that hands off to
+[exe-metal](https://github.com/navilansanthanakrishnan/exe-metal), which composes a
+Sikarugir Wine + **DXMT/DXVK** engine that does run them.
+
+Check what a game needs:
+
+```
+porter probe "/path/to/Game.exe"
+# -> runtime: sikarugir, renderer: dxmt   (a DXMT hand-off app will be built)
+# -> runtime: gptk,      renderer: d3dmetal (the native GPTK/D3DMetal path)
+```
+
+For DXMT games, install exe-metal and copy its built binary to:
+
+```
+~/Library/Application Support/exe-metal/bin/exe-metal
+```
+
+Then build as usual (`porter package <game-folder> --name "..."`); the generated app
+launches the game through DXMT. **64-bit DX12/DX11 games are unaffected** and keep using
+GPTK/D3DMetal with no extra setup.
+
+> A future version will vendor the DXMT engine natively, removing the exe-metal dependency.

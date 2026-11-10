@@ -121,6 +121,48 @@ def build_app(name, game_dir, info, out_dir, embed=False):
     return app
 
 
+def build_app_handoff(name, game_dir, info, stack, out_dir):
+    """A .app for a game that needs the DXMT/DXVK stack (32-bit DX11/10).
+
+    D3DMetal is 64-bit only, so these can't use the Game Porting Toolkit path. Instead of
+    bundling a second Wine, the app hands off to exe-metal, which composes the Sikarugir
+    Wine + DXMT/DXVK engine and manages the bottle. The bundle is tiny: a launcher, an icon
+    and porter.conf; the game stays in place and exe-metal keeps its engine and bottles under
+    its own support folder."""
+    slug = paths.slug(name)
+    app = Path(out_dir) / f'{name}.app'
+    if app.exists():
+        shutil.rmtree(app)
+    res = app / 'Contents/Resources'
+    (app / 'Contents/MacOS').mkdir(parents=True)
+    res.mkdir(parents=True)
+    exe = app / 'Contents/MacOS' / name
+    shutil.copy2(paths.REPO / 'templates/launcher-exemetal.sh', exe)
+    exe.chmod(0o755)
+    exe_path = str((Path(game_dir) / info['exe']).resolve())
+    conf = (f'GAME_NAME={name!r}\nGAME_SLUG={slug!r}\nGAME_EXE_PATH={exe_path!r}\n'
+            f'{stack.to_conf()}')
+    (res / 'porter.conf').write_text(conf)
+    has_icon = make_icon(game_dir, res / 'AppIcon.icns')
+    (app / 'Contents/Info.plist').write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>{name}</string>
+  <key>CFBundleDisplayName</key><string>{name}</string>
+  <key>CFBundleIdentifier</key><string>local.macgameporter.{slug}</string>
+  <key>CFBundleExecutable</key><string>{name}</string>
+  {'<key>CFBundleIconFile</key><string>AppIcon</string>' if has_icon else ''}
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+''')
+    log(f'app ready (DXMT via exe-metal): {app}')
+    return app
+
+
 def build_dmg(name, game_dir, info, out_dir):
     """Self-contained app (game embedded) wrapped in a DMG for another Mac."""
     dmg = Path(out_dir) / f'{name}.dmg'
