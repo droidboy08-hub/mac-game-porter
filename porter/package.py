@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from . import game, paths, probe
+from . import game, paths, probe, runtime
 from .runtime import log
 
 REGISTRY = r'''Windows Registry Editor Version 5.00
@@ -160,6 +160,52 @@ def build_app_handoff(name, game_dir, info, stack, out_dir):
 </dict></plist>
 ''')
     log(f'app ready (DXMT via exe-metal): {app}')
+    return app
+
+
+def build_app_dxmt(name, game_dir, info, stack, out_dir, embed=False):
+    """Native DXMT path (no exe-metal): bundle the Sikarugir Wine (DXMT built in via the
+    overlay) plus the frameworks it links against, and a DXMT launcher. For 32-bit DX11/10
+    games that Apple's D3DMetal (64-bit only) cannot run. Mirrors build_app, swapping the
+    Game Porting Toolkit Wine for the Sikarugir one."""
+    sik = runtime.ensure_sikarugir()
+    slug = paths.slug(name)
+    app = Path(out_dir) / f'{name}.app'
+    if app.exists():
+        shutil.rmtree(app)
+    res = app / 'Contents/Resources'
+    (app / 'Contents/MacOS').mkdir(parents=True)
+    res.mkdir(parents=True)
+    exe = app / 'Contents/MacOS' / name
+    shutil.copy2(paths.REPO / 'templates/launcher-dxmt.sh', exe)
+    exe.chmod(0o755)
+    log('assembling app bundle (APFS clones, no extra disk)')
+    clone(sik / 'wine', res / 'wine')
+    clone(sik / 'frameworks', res / 'frameworks')
+    conf = (f'GAME_NAME={name!r}\nGAME_SLUG={slug!r}\nGAME_EXE={info["exe"]!r}\nENGINE={info["engine"]!r}\n'
+            f'CONTROLLER={info.get("controller", "xinput")!r}\n{stack.to_conf()}')
+    if embed:
+        clone(game_dir, res / 'game')
+    else:
+        conf += f'GAME_DIR={str(Path(game_dir).resolve())!r}\n'
+    (res / 'porter.conf').write_text(conf)
+    has_icon = make_icon(game_dir, res / 'AppIcon.icns')
+    (app / 'Contents/Info.plist').write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>{name}</string>
+  <key>CFBundleDisplayName</key><string>{name}</string>
+  <key>CFBundleIdentifier</key><string>local.macgameporter.{slug}</string>
+  <key>CFBundleExecutable</key><string>{name}</string>
+  {'<key>CFBundleIconFile</key><string>AppIcon</string>' if has_icon else ''}
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+''')
+    log(f'app ready (native DXMT): {app}')
     return app
 
 

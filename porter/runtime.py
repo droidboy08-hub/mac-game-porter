@@ -1,7 +1,9 @@
 """Download and verify the Wine runtimes (cached once per machine) and build native tools."""
 import hashlib
+import shutil
 import subprocess
 import tarfile
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -80,3 +82,81 @@ def ensure_exemetal():
             'Install exe-metal (https://github.com/navilansanthanakrishnan/exe-metal) and copy its\n'
             f'built binary to:\n  {p}\nThen run this again. (See the README section on DXMT games.)')
     return p
+
+
+# --- Native DXMT runtime (Sikarugir) -------------------------------------------
+# A Wine 11 built from CrossOver sources that exports the winemetal entry points DXMT
+# needs and ships DXMT built in, plus the shared frameworks it links against (FreeType,
+# GStreamer). Pins mirror the Sikarugir releases the Vapor project ships; bump both the
+# URL and its checksum together. This is the self-contained DXMT path (no exe-metal).
+SIKARUGIR_DIR = paths.RUNTIME / 'sikarugir'          # wine/ (the Wine) + frameworks/ (dylibs)
+SIKARUGIR = {
+    'engine': ('https://github.com/Sikarugir-App/Engines/releases/download/v1.0/WS12WineSikarugir11.0_1.tar.xz',
+               '67e29fb3d74f363af39c69ba11f9b13a79812c5db07cf4748672658e4a200a0e'),
+    'template': ('https://github.com/Sikarugir-App/Template/releases/download/v1.0/Template-1.0.24.tar.xz',
+                 '4b5f89eeb9ef139936bdfad33d9b420b05ea4597cb7d63376674f7a8e171321c'),
+}
+
+
+def _extract(archive, dest):
+    with tarfile.open(archive) as t:
+        try:
+            t.extractall(dest, filter='tar')
+        except TypeError:                     # Python < 3.12
+            t.extractall(dest)
+
+
+def _download_verified(url, sha, dest):
+    if not dest.exists() or sha256(dest) != sha:
+        log(f'downloading {Path(url).name}')
+        urllib.request.urlretrieve(url, dest)
+    if sha256(dest) != sha:
+        raise SystemExit(f'{dest.name}: checksum mismatch, refusing to use it')
+
+
+def ensure_sikarugir():
+    """Assemble the Sikarugir Wine (DXMT built in) + the frameworks it needs, cached once.
+
+    Returns SIKARUGIR_DIR with wine/ (bin/wine, lib/wine/... incl. the DXMT d3d11/dxgi and
+    winemetal) and frameworks/ (FreeType, GStreamer, the dylibs the Wine links against)."""
+    wine = SIKARUGIR_DIR / 'wine'
+    fw = SIKARUGIR_DIR / 'frameworks'
+    if (wine / 'bin' / 'wine').exists() and fw.exists():
+        return SIKARUGIR_DIR
+    SIKARUGIR_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=paths.RUNTIME) as t:
+        t = Path(t)
+        eng = t / Path(SIKARUGIR['engine'][0]).name
+        _download_verified(*SIKARUGIR['engine'], eng)
+        log('unpacking Sikarugir Wine (DXMT built in)')
+        _extract(eng, t)
+        bundle = next((p for p in t.glob('**/wswine.bundle') if (p / 'bin' / 'wine').exists()), None)
+        if not bundle:
+            raise SystemExit('Sikarugir engine: wswine.bundle/bin/wine not found after unpack')
+        if wine.exists():
+            shutil.rmtree(wine)
+        shutil.move(str(bundle), str(wine))
+
+        tpl = t / Path(SIKARUGIR['template'][0]).name
+        _download_verified(*SIKARUGIR['template'], tpl)
+        log('unpacking Sikarugir frameworks + DXMT renderer')
+        _extract(tpl, t)
+        app = next((p for p in t.glob('**/*.app') if (p / 'Contents' / 'Frameworks').is_dir()), None)
+        if not app:
+            raise SystemExit('Sikarugir template: app bundle not found after unpack')
+        # Shared dylibs (FreeType, GStreamer, MoltenVK, ...) the Wine links against.
+        if fw.exists():
+            shutil.rmtree(fw)
+        shutil.copytree(app / 'Contents' / 'Frameworks', fw, symlinks=True)
+        # The engine ships only Wine's builtin wined3d d3d11; overlay the real DXMT renderer
+        # (winemetal.so + DXMT's d3d11/dxgi/d3d10core) from the template onto the engine's wine
+        # tree. renderer/dxmt/wine/<arch>/ maps onto wine/lib/wine/<arch>/. Symlinks preserved:
+        # dereferencing them yields an engine that looks right but doesn't work.
+        rwine = next((p for p in app.glob('**/renderer/dxmt/wine') if p.is_dir()), None)
+        if not rwine:
+            raise SystemExit('Sikarugir template: renderer/dxmt/wine not found')
+        shutil.copytree(rwine, wine / 'lib' / 'wine', dirs_exist_ok=True, symlinks=True)
+    # Downloaded bits carry quarantine; strip it so Gatekeeper doesn't stall first launch.
+    subprocess.run(['xattr', '-dr', 'com.apple.quarantine', str(SIKARUGIR_DIR)], check=False)
+    log('Sikarugir runtime ready')
+    return SIKARUGIR_DIR

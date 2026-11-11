@@ -54,12 +54,18 @@ def cmd_package(a):
     log(f'stack: {stack.runtime} + {stack.renderer} ({stack.reason})')
     out = Path(a.out or paths.GAMES)
     out.mkdir(parents=True, exist_ok=True)
-    # 32-bit DX11/10 (and DX9) can't use GPTK/D3DMetal; hand those off to exe-metal (DXMT/DXVK).
+    # 32-bit DX11/10 (and DX9) can't use GPTK/D3DMetal. Default: the native DXMT runtime
+    # (Sikarugir Wine, bundled into the app). --handoff instead delegates to exe-metal.
     if stack.runtime == 'sikarugir':
-        runtime.ensure_exemetal()
+        if getattr(a, 'handoff', False):
+            runtime.ensure_exemetal()
+            if a.dmg:
+                log('note: --dmg does not apply to a hand-off app; built the .app only.')
+            return package.build_app_handoff(a.name, a.source, info, stack, out)
+        app = package.build_app_dxmt(a.name, a.source, info, stack, out)
         if a.dmg:
-            log('note: --dmg applies only to the Game Porting Toolkit path; skipping it for a DXMT hand-off app.')
-        return package.build_app_handoff(a.name, a.source, info, stack, out)
+            log('note: --dmg for the native DXMT path is not implemented yet; built the .app only.')
+        return app
     runtime.ensure_runtime('gptk')
     app = package.build_app(a.name, a.source, info, out)
     if a.dmg:
@@ -115,6 +121,8 @@ def main():
         s.add_argument('--exe', help='game executable relative to the game folder (auto-detected otherwise)')
         s.add_argument('--out', help=f'where to put the .app/.dmg (default {paths.GAMES})')
         s.add_argument('--dmg', action='store_true', help='also build a DMG')
+        s.add_argument('--handoff', action='store_true',
+                       help='for DXMT games, hand off to exe-metal instead of bundling the native DXMT runtime')
         s.add_argument('--controller', choices=['raw', 'xinput'],
                        help='raw: real DualSense/DualShock HID for games with native support (adaptive triggers); '
                             'xinput: Xbox-style pad (default unless the game drives Sony pads itself)')

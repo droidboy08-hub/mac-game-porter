@@ -205,30 +205,45 @@ or turn on the Metal HUD (`MTL_HUD_ENABLED=1` in `launch.conf`) to measure.
 - The repack's stored checksums use a non-standard format, so verification checks sizes and
   structure, not CRC32.
 
-## 32-bit DirectX 11/10 games (DXMT hand-off)
+## 32-bit DirectX 11/10 games (native DXMT)
 
-Apple's D3DMetal is **64-bit only**, so 32-bit DirectX 10/11 games (for example
-BioShock 2 Remastered) cannot use the Game Porting Toolkit path — they launch, then
-quit. `porter` now detects these and builds an app that hands off to
-[exe-metal](https://github.com/navilansanthanakrishnan/exe-metal), which composes a
-Sikarugir Wine + **DXMT/DXVK** engine that does run them.
+Apple's D3DMetal is **64-bit only**, so 32-bit DirectX 10/11 games (for example BioShock 2
+Remastered) cannot use the Game Porting Toolkit path — they launch, then quit. `porter`
+detects these and builds an app that runs them through **DXMT** (DirectX 10/11 → Metal) on a
+Sikarugir Wine, bundled into the app. 64-bit DX12/DX11 games are unaffected and keep using
+GPTK/D3DMetal.
 
 Check what a game needs:
 
 ```
 porter probe "/path/to/Game.exe"
-# -> runtime: sikarugir, renderer: dxmt   (a DXMT hand-off app will be built)
-# -> runtime: gptk,      renderer: d3dmetal (the native GPTK/D3DMetal path)
+# -> runtime: sikarugir, renderer: dxmt     (built with the native DXMT runtime)
+# -> runtime: gptk,      renderer: d3dmetal (the GPTK/D3DMetal path)
 ```
 
-For DXMT games, install exe-metal and copy its built binary to:
+Build as usual:
 
 ```
-~/Library/Application Support/exe-metal/bin/exe-metal
+porter package "/path/to/game-folder" --name "Your Game"
 ```
 
-Then build as usual (`porter package <game-folder> --name "..."`); the generated app
-launches the game through DXMT. **64-bit DX12/DX11 games are unaffected** and keep using
-GPTK/D3DMetal with no extra setup.
+For a DXMT game, the first build downloads the Sikarugir Wine + DXMT and the frameworks it
+needs (about 1 GB, cached and SHA-256 verified), then bundles them into the `.app`. No other
+setup — the app is self-contained.
 
-> A future version will vendor the DXMT engine natively, removing the exe-metal dependency.
+### Optional: hand off to exe-metal instead
+
+To avoid bundling the ~1 GB runtime, `--handoff` builds a tiny app that delegates to
+[exe-metal](https://github.com/navilansanthanakrishnan/exe-metal) (install it and copy its
+binary to `~/Library/Application Support/exe-metal/bin/exe-metal`):
+
+```
+porter package "/path/to/game-folder" --name "Your Game" --handoff
+```
+
+### Known limitation
+
+Minimizing a DXMT game and restoring it can freeze it: on restore, Wine + the DirectX→Metal
+layer doesn't always recreate the game's Metal surface. Switch away with Cmd-Tab / Mission
+Control instead of the minimize button. This is an upstream Wine/Metal issue, not specific to
+this tool.
